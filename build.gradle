@@ -1,0 +1,178 @@
+group 'com.example.jooq'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+
+    ext.jooq_version='3.8.1'
+    ext.querydsl_version='4.1.2'
+    ext.hibernate_version='5.2.0.Final'
+    ext.postgresql_version='9.4.1208'
+
+    dependencies {
+        classpath "org.jooq:jooq-codegen:${jooq_version}"
+        classpath "org.postgresql:postgresql:${postgresql_version}"
+        classpath "org.liquibase:liquibase-gradle-plugin:1.2.1"
+    }
+}
+
+allprojects {
+    apply plugin: 'java'
+
+    sourceCompatibility = 1.8
+    targetCompatibility = 1.8
+
+    apply plugin: 'org.liquibase.gradle'
+
+    repositories {
+        mavenCentral()
+    }
+
+    dependencies {
+        testCompile group: 'junit', name: 'junit', version: '4.11'
+
+        compile 'org.apache.commons:commons-lang3:3.4'
+
+        compile "org.postgresql:postgresql:${postgresql_version}"
+
+        compile "org.jooq:jooq:${jooq_version}"
+        compile "org.jooq:jooq-meta:${jooq_version}"
+
+        compile "com.querydsl:querydsl-apt:${querydsl_version}"
+        compile "com.querydsl:querydsl-jpa:${querydsl_version}"
+        compile "com.querydsl:querydsl-sql:${querydsl_version}"
+
+        compile "org.hibernate:hibernate-core:${hibernate_version}"
+
+        compile "org.hibernate:hibernate-hikaricp:${hibernate_version}"
+    }
+
+    ext.jdbcUrl = 'jdbc:postgresql://localhost/uuid_example'
+    ext.jdbcPassword = ''
+
+    ext.jooqGeneratedSourcesDir = ['src', 'main', 'jooq'].join(File.separator)
+    ext.querydslGeneratedSourcesDir = ['src', 'main', 'querydsl'].join(File.separator)
+
+    ext.jooqGeneratedSourcesPackage = 'com.example.jooq.db'
+
+    sourceSets.main.java.srcDirs querydslGeneratedSourcesDir, jooqGeneratedSourcesDir
+
+    ext.jooqOutputDir = file(projectDir.toString() + File.separator + jooqGeneratedSourcesDir)
+
+    task cleanJooq << {
+        delete jooqOutputDir
+    }
+
+    task generateJooq << {
+        jooqOutputDir.exists() || jooqOutputDir.mkdirs()
+
+        // Construct the code generation configuration file
+        // ------------------------------------------------
+        def writer = new StringWriter()
+        def xml = new groovy.xml.MarkupBuilder(writer)
+        xml.configuration('xmlns': "http://www.jooq.org/xsd/jooq-codegen-3.8.0.xsd") {
+            jdbc() {
+                driver('org.postgresql.Driver')
+                url(project.ext.jdbcUrl)
+                user(System.getProperty('user.name'))
+                password(project.ext.jdbcPassword)
+            }
+            generator() {
+                database() {
+                    name('org.jooq.util.postgres.PostgresDatabase')
+                    inputSchema('public')
+                }
+                generate() {
+                }
+                target() {
+                    packageName(jooqGeneratedSourcesPackage)
+                    directory(jooqOutputDir)
+                }
+            }
+        }
+
+        // Run the code generator
+        // ----------------------
+        org.jooq.util.GenerationTool.generate(
+                javax.xml.bind.JAXB.unmarshal(new StringReader(writer.toString()), org.jooq.util.jaxb.Configuration.class)
+        )
+    }
+
+    generateJooq.onlyIf {
+        !jooqOutputDir.exists()
+    }
+
+    ext.querydslOutputDir = file(projectDir.toString() + File.separator + querydslGeneratedSourcesDir)
+
+    task querydsl() {}
+
+    task cleanQuerydsl << {
+        delete querydslOutputDir
+    }
+
+    task generateQuerydsl() {
+        def srcDir = [projectDir, 'src', 'main', 'java'].join(File.separator)
+
+        inputs.dir file(srcDir)
+        outputs.dir querydslOutputDir
+
+        doFirst {
+            querydslOutputDir.exists() || querydslOutputDir.mkdirs()
+
+            Map antOptions = [
+                    includeAntRuntime : false,
+                    destdir           : querydslOutputDir,
+                    classpath         : configurations.compile.asPath,
+                    sourcepath        : '',
+                    target            : project.targetCompatibility,
+                    source            : project.sourceCompatibility,
+                    srcdir            : srcDir,
+                    includes          : '**/*.java',
+
+                    optimize          : false,
+                    fork              : false,
+                    includeJavaRuntime: false,
+                    verbose           : false,
+                    deprecation       : false,
+                    failonerror       : true,
+                    nowarn            : false,
+                    debug             : true,
+                    listfiles         : false
+            ]
+
+            def compilerArgs = [
+                    '-Xlint:deprecation',
+                    '-proc:only', // So it doesn't compile resulting sources here
+                    '-processor', 'com.querydsl.apt.jpa.JPAAnnotationProcessor',
+                    '-sourcepath', projectDir.toString() + File.separator + jooqGeneratedSourcesDir
+            ]
+
+            ant.javac(antOptions) {
+                compilerArgs.each { value ->
+                    compilerarg(value: value)
+                }
+            }
+        }
+    }
+
+    compileJava.dependsOn generateQuerydsl
+    querydsl.dependsOn cleanQuerydsl
+    querydsl.finalizedBy generateQuerydsl
+    def masterFile = file('src/main/resources/liquibase/db.changelog-master.xml')
+
+    liquibase {
+        activities {
+            main {
+                changeLogFile masterFile
+                url project.ext.jdbcUrl
+                username System.getProperty('user.name')
+                password project.ext.jdbcPassword
+                classpath configurations.compile.asPath + File.pathSeparator + sourceSets.main.resources.srcDirs.join(File.pathSeparator)
+            }
+        }
+    }
+
+    update.finalizedBy cleanJooq, generateJooq
+}

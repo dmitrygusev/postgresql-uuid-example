@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<persistence xmlns="http://java.sun.com/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="http://java.sun.com/xml/ns/persistence
+        http://java.sun.com/xml/ns/persistence/persistence_2_1.xsd" version="1.0">
+
+    <persistence-unit name="uuid-example-pu" transaction-type="RESOURCE_LOCAL">
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+        <class>com.example.model.User</class>
+        <properties>
+            <property name="hibernate.hbm2ddl.auto" value="validate"/>
+            <property name="hibernate.show_sql" value="false" />
+            <property name="hibernate.connection.provider_class" value="org.hibernate.hikaricp.internal.HikariCPConnectionProvider"/>
+            <property name="hibernate.hikari.dataSource.url" value="jdbc:postgresql://localhost/uuid_example"/>
+            <property name="hibernate.auth" value="Container" />
+            <property name="hibernate.hikari.connectionTimeout" value="300000" />
+            <property name="hibernate.hikari.maximumPoolSize" value="50" />
+            <property name="hibernate.hikari.minimumIdle" value="5" />
+            <property name="hibernate.hikari.dataSourceClassName" value="org.postgresql.ds.PGSimpleDataSource" />
+            <property name="hibernate.dialect" value="com.example.hibernate.CustomPostgreSQL9Dialect"/>
+        </properties>
+    </persistence-unit>
+</persistence>
